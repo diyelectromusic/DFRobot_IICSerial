@@ -21,11 +21,9 @@ import board
 import sys
 import os
 import time
-from adafruit_bus_device.i2c_device import I2CDevice
 
 i2c = board.I2C()
 
-#sys.path.append(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 from DFRobot_IIC_Serial_Pico import *
 
 iic_uart1 = DFRobot_IIC_Serial(i2c, sub_uart_channel = SUBUART_CHANNEL_1, IA1 = 1, IA0 = 1) #using UART1 interface of IIC to dual uart moudle.
