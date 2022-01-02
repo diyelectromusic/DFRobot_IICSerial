@@ -1,7 +1,9 @@
-from __future__ import print_function
-
 '''
- file DFRobot_IIC_Serial.py
+ file DFRobot_IIC_Serial_Pico.py
+ @n The python class DFRobot_IIC_Serial for the Raspberry Pi Pico running Circuitpython.
+ @n Based on the original DFRobot_IIC_Serial.py details below.
+ @author Kevin (@diyelectromusic)
+ 
  @brief Define the basic structure of class DFRobot_IIC_Serial 
  @n This is a library for IIC to UART module, the maximum rate is 1Mbps;
  @n The band rate, word length, and check format of every sub UART can be set independently;
@@ -18,11 +20,6 @@ from __future__ import print_function
 '''
 import sys
 import time
-import smbus
-import RPi.GPIO as GPIO
-
-from serial.serialutil import SerialBase, SerialException, to_bytes, \
-    portNotOpenError, writeTimeoutError, Timeout
 
 REG_WK2132_GENA = 0x00  #Global control register, control sub UART clock 
 REG_WK2132_GRST = 0x01  #Global sub UART reset register, reset a sub UART independently through software
@@ -121,7 +118,7 @@ class DFRobot_IIC_Serial:
   ''' last operate status, users can use this variable to determine the result of a function call. '''
   last_operate_status = STA_OK
   
-  def __init__(self, sub_uart_channel, IA1 = 1, IA0 =1):
+  def __init__(self, i2cbus, sub_uart_channel, IA1 = 1, IA0 =1):
     '''
       @brief Constructor
       @param sub_uart_channel sub UART channel, WK2132 has two sub UARTs: SUBUART_CHANNEL_1 or SUBUART_CHANNEL_2
@@ -143,7 +140,7 @@ class DFRobot_IIC_Serial:
     self._sub_serial_channel = sub_uart_channel
     self._rx_buffer_head = 0
     self._rx_buffer_tail = 0
-    self._bus = smbus.SMBus(1)
+    self._bus = i2cbus
     #GPIO.setmode(GPIO.BCM)
     #GPIO.setwarnings(False)
 
@@ -253,7 +250,7 @@ class DFRobot_IIC_Serial:
       if k >= size and j != self._rx_buffer_tail:
         #print("ok")
         break
-    return bytes(r)
+    return r
 
   def flush(self):
     '''
@@ -269,7 +266,7 @@ class DFRobot_IIC_Serial:
       @param value: byte string
       @return return bytes actually written.
     '''
-    d = to_bytes(value)
+    d = value
     d = [ord(x) for x in d]
     #print(d)
     tx_len = length = len(d)
@@ -407,8 +404,8 @@ class DFRobot_IIC_Serial:
     baud1 = 0
     baud0 = 0
     baud_pres = 0
-    val_intger =  FOSC/(baud * 16) - 1
-    val_decimal = (FOSC%(baud * 16))/(baud * 16)
+    val_intger =  int(FOSC/(baud * 16) - 1)
+    val_decimal = int((FOSC%(baud * 16))/(baud * 16))
     baud1 = (val_intger >> 8)&0xff
     baud0 = (val_intger & 0x00ff)
     while val_decimal > 0x0A:
@@ -462,14 +459,14 @@ class DFRobot_IIC_Serial:
     self.last_operate_status = self.STA_ERR_DEVICE_NOT_DETECTED
     self._addr = self._update_addr(self._addr, self._sub_serial_channel, OBJECT_REGISTER)
     try:
-      self._bus.write_i2c_block_data(self._addr, reg, buf)
+      self._i2c_write_reg(self._addr, reg, bytes(buf))
       self.last_operate_status = self.STA_OK
       return len(buf)
     except:
       #print("+++++++++++++")
       return 0
 
-      
+
 
   def _read_bytes(self, reg, len1):
     '''
@@ -481,9 +478,36 @@ class DFRobot_IIC_Serial:
     self.last_operate_status = self.STA_ERR_DEVICE_NOT_DETECTED
     self._addr = self._update_addr(self._addr, self._sub_serial_channel, OBJECT_REGISTER)
     self._addr = self._addr & 0xFE
+    rslt = bytearray(len1)
     try:
-      rslt = self._bus.read_i2c_block_data(self._addr, reg, len1)
+      self._i2c_read_reg(self._addr, reg, rslt)
       self.last_operate_status = self.STA_OK
       return rslt
     except:
       return []
+
+  def _i2c_read_reg(self, addr, reg, result):
+    # Read a buffer of data from the specified 8-bit I2C register address.
+    # The provided result parameter will be filled to capacity with bytes
+    # of data read from the register.
+    while not self._bus.try_lock():
+      pass
+    try:
+      self._bus.writeto_then_readfrom(addr, bytes([reg]), result)
+      return result
+    finally:
+      self._bus.unlock()
+      return None
+
+  def _i2c_write_reg(self, addr, reg, data):
+    # Write a buffer of data (byte array) to the specified I2C register
+    # address.
+    while not self._bus.try_lock():
+      pass
+    try:
+      buf = bytearray(1)
+      buf[0] = reg
+      buf.extend(data)
+      self._bus.writeto(addr, buf)
+    finally:
+      self._bus.unlock()
